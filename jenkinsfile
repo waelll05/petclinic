@@ -1,0 +1,104 @@
+pipeline {
+    agent any
+    environment {
+        //once you create ACR in Azure cloud, use that here
+        registryName = "waeldoss/petclinic3"
+        //- update your credentials ID after creating credentials for connecting to ACR
+        registryCredential = 'ACR'
+        dockerImage = ''
+        registryUrl = 'waeldossregistryazure.azurecr.io'
+    }
+    tools {
+        maven 'M3'
+        terraform 'terraform'
+    }
+    stages {
+        stage('Build Maven') {
+            steps{
+               checkout([$class: 'GitSCM', branches: [[name: '*/main']], extensions: [], userRemoteConfigs: [[credentialsId: 'acc54061-7665-4647-bb7d-22bff1822458', url: 'https://github.com/waelll05/petclinic.git']]])
+               //sh "mvn -Dmaven.test.failure.ignore=true clean package"
+                sh "mvn -Dmaven.test.failure.ignore=true clean package -PMySQLAZURE"
+            }
+        }
+        stage('Build Docker image') {
+            steps {
+                script {
+                
+                dockerImage = docker.build registryName
+                    
+                }
+                
+            }
+        }
+        stage('deployer in the dockerhub') {
+            steps {
+                script {
+                    withCredentials([usernameColonPassword(credentialsId: 'dockerhub', variable: 'waelpwdfordockerhub')]) {
+                        sh 'docker login -u waeldoss -p ${waelpwdfordockerhub}'
+                    }
+                   
+                }
+            }
+        }
+        
+         /*stage('Terraform Init') {
+            steps {
+                sh label: '', script: 'terraform init'
+            }
+        }
+    
+        stage('Terraform Plan') {
+            steps {
+                sh label: '', script: 'terraform plan'
+            }
+        }
+       
+        stage('Terraform Apply') {
+            steps {
+                sh label: '', script: 'terraform appy --auto-approve'
+            }
+        }  */
+        
+        stage('Push Image to ACR') {
+            steps{   
+                script {
+                    docker.withRegistry( "http://${registryUrl}", registryCredential ) {
+                    dockerImage.push()
+                }
+            }
+        }
+    }
+        stage ('K8S Deploy') {
+            steps {
+                script {
+                    kubernetesDeploy configs: 'deployment.yaml', kubeConfig: [path: ''], kubeconfigId: 'k8s', secretName: '', ssh: [sshCredentialsId: '*', sshServer: ''], textCredentials: [certificateAuthorityData: '', clientCertificateData: '', clientKeyData: '', serverUrl: 'https://']
+                    
+                    //kubernetesDeploy(
+                    //configs: 'deployement.yml',
+                    //credentialsId : 'K8S',
+                    //withKubeConfig([credentialsId: 'K8S'])
+                    //enableConfigSubstitution: false
+                    //{sh 'kubectl apply -f deploy.yml' }
+                             
+                }
+           }
+        } 
+        /*stage('Terraform Init') {
+            steps {
+                sh label: '', script: 'terraform init'
+            }
+        }
+    
+        stage('Terraform Plan') {
+            steps {
+                sh label: '', script: 'terraform plan'
+            }
+        }
+       
+        stage('Terraform Apply') {
+            steps {
+                sh label: '', script: 'terraform appy --auto-approve'
+            }
+        }  */
+    }
+ }
